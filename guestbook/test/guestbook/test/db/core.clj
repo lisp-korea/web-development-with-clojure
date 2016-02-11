@@ -14,18 +14,13 @@
 (deftest test-users
   (jdbc/with-db-transaction [t-conn db/conn]
     (jdbc/db-set-rollback-only! t-conn)
-    (is (= 1 (db/create-user!
-               {:id         "1"
-                :first_name "Sam"
-                :last_name  "Smith"
-                :email      "sam.smith@example.com"
-                :pass       "pass"} {:connection t-conn})))
-    (is (= [{:id         "1"
-             :first_name "Sam"
-             :last_name  "Smith"
-             :email      "sam.smith@example.com"
-             :pass       "pass"
-             :admin      nil
-             :last_login nil
-             :is_active  nil}]
-           (db/get-user {:id "1"} {:connection t-conn})))))
+    (is (= 1 (db/save-message!
+               {:name      "Bob"
+                :message   "Hello World"
+                :timestamp #inst "2015-01-18T16:22:10.010000000-00:00"} {:connection t-conn})))
+    (is (= [{:name      "Bob"
+             :message   "Hello World"
+             :timestamp #inst "2015-01-18T16:22:10.010000000-00:00"}]
+           (map
+             #(select-keys % [:name :message :timestamp])
+             (db/get-messages nil {:connection t-conn}))))))

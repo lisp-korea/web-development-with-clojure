@@ -11,3 +11,4 @@ pom.xml
 
 /.idea
 *.iml
+guestbook_test.db.mv.db
