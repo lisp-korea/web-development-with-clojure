@@ -24,7 +24,7 @@ ul {
     list-style: none;
 }
 
-li {
+ul.content li {
     position: relative;
     font-size: 16px;
     padding: 5px;
