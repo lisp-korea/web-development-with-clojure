@@ -522,9 +522,7 @@ table.CodeRay td.code>pre{padding:0}
 있으나, 자신의 요구에 맞게 프레임워크의 기능을 수정하거나 확장하려고 할 때, 해당 웹
 프레임워크의 소스 코드를 직접 분석하면서 그 구조를 정확히 파악해야만 하는데 이 작업은 결코
 쉬운 일이 아니다. 즉, 해당 프레임워크가 제공하는 틀(frame)을 파악해야 하는 일이 만만치 않은
-일일 뿐만 아니라, 그 틀을 벗어나서 작업하는 것은 거의 불가능하게 된다. 예를 들어, Ruby on
-Rails에서는 ORM으로 ActiveRecord를 사용하고 있는데, 이것을 자신이 좋아하는 다른 ORM으로
-바꾸어 사용하는 것은 상상하기 힘들다.</p>
+일일 뿐만 아니라, 그 틀을 벗어나서 작업하는 것 역시 쉬운 일은 아니다.</p>
 </div>
 <div class="paragraph">
 <p>반면에, 클로저에서는 웹 프레임워크라고 부를 만한 것이 특별히 존재하지 않는데, 그 이유는
@@ -792,24 +790,24 @@ transducer의 동작 원리를 제대로 이해하기 위해서라도 미들웨�
 필수적이다.</p>
 </div>
 <div class="paragraph">
-<p>미들웨어 패턴을 이해하려면, 먼저 '함수 객체&#8217;와 '함수 호출&#8217;을 명확하게 구분해야 한다.</p>
+<p>미들웨어 패턴을 이해하려면, 먼저 '함수 자체&#8217;와 '함수 호출&#8217;을 명확하게 구분해야 한다.</p>
 </div>
 <div class="listingblock">
 <div class="content">
 <pre class="CodeRay highlight"><code data-lang="clojure"><span class="comment">;; 함수를 정의한다. 함수를 정의했다고, 함수가 곧바로 호출되지는 않는다는 점에 주의한다.</span>
-<span class="comment">;; 함수를 정의하면, 함수 객체가 생성된 후, 그 객체를 add라는 심볼이 가리킨다.</span>
+<span class="comment">;; 함수를 정의하면, 함수 자체가 생성된 후, 그 자체를 add라는 심볼이 가리킨다.</span>
 (<span class="keyword">defn</span> <span class="function">add</span> [a b]
   (<span class="keyword">+</span> a b))</code></pre>
 </div>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre>심볼 add   --&gt;   함수 객체</pre>
+<pre>심볼 add   --&gt;   함수 자체</pre>
 </div>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="CodeRay highlight"><code data-lang="clojure"><span class="comment">;; 심볼 add는 함수 객체를 가리킨다.</span>
+<pre class="CodeRay highlight"><code data-lang="clojure"><span class="comment">;; 심볼 add는 함수 자체를 가리킨다.</span>
 <span class="comment">;; 심볼 add를 평가한다고 해서, 함수 add가 실행되지는 않는다.</span>
 add
 <span class="comment">;=&gt; #function[ring-app.middle/add]</span>
@@ -958,9 +956,9 @@ handler))</code>로 확장되기 때문이다. 그래서 다음도 같은 결과
 </div>
 <div class="paragraph">
 <p>그런데 <code>transduce</code>는 미들웨어 패턴을 이용하고 있는 함수이다. 위의
-<a href="#middleware-example">[middleware-example]</a>에서 볼 수 있다시피, 함수의 인수가 '함수 객체&#8217;인 경우에는, 그 인수를
-전달받은 함수가, 그 함수 객체의 실행 시기를 결정할 수 있다. 즉, <code>transduce</code>의 경우에는,
-자신이 먼저 작업을 수행한 후, 그 계산 결과를, '인수로 전달받은 함수 객체&#8217;의 인수로 다시
+<a href="#middleware-example">[middleware-example]</a>에서 볼 수 있다시피, 함수의 인수가 '함수 자체&#8217;인 경우에는, 그 인수를
+전달받은 함수가, 그 함수 자체의 실행 시기를 결정할 수 있다. 즉, <code>transduce</code>의 경우에는,
+자신이 먼저 작업을 수행한 후, 그 계산 결과를, '인수로 전달받은 함수 자체&#8217;의 인수로 다시
 넘긴 것이다.</p>
 </div>
 </div>
@@ -1453,7 +1451,7 @@ method에 기반해, 그에 대응하는 handler를 연결해 주는 역할을 �
 </div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2016-02-20 11:43:43 KST
+Last updated 2016-02-20 12:26:22 KST
 </div>
 </div>
 </body>
