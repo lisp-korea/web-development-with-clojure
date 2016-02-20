@@ -1,0 +1,747 @@
+= Clojure Web Stack
+:sectnums:
+:source-language: clojure
+:source-highlighter: coderay
+:icons: font
+
+많은 언어들이 Web Framework(루비의 Rails나 파이썬의 Django)를 제공한다. 이러한 웹
+프레임워크가 제공하는 장점(예를 들면, 간단한 프로그렘은 짧은 시간에 만들 수 있다)도 분명히
+있으나, 자신의 요구에 맞게 프레임워크의 기능을 수정하거나 확장하려고 할 때, 해당 웹
+프레임워크의 소스 코드를 직접 분석하면서 그 구조를 정확히 파악해야만 하는데 이 작업은 결코
+쉬운 일이 아니다. 즉, 해당 프레임워크가 제공하는 틀(frame)을 파악해야 하는 일이 만만치 않은
+일일 뿐만 아니라, 그 틀을 벗어나서 작업하는 것은 거의 불가능하게 된다. 예를 들어, Ruby on
+Rails에서는 ORM으로 ActiveRecord를 사용하고 있는데, 이것을 자신이 좋아하는 다른 ORM으로
+바꾸어 사용하는 것은 상상하기 힘들다.
+
+반면에, 클로저에서는 웹 프레임워크라고 부를 만한 것이 특별히 존재하지 않는데, 그 이유는
+클로저에서는 조합성(composability)이 뛰어나서 자신이 선호하는 라이브러리들을 직접 조립하는
+방식으로 웹 프로그래밍을 할 수 있기 때문이다. 하지만 장점이 있으면 그에 따른 단점도 있는
+법, 이러한 접근 방식이 클로저 초보자들에게는 부담으로 작용하기도 한다. 즉, 초보자들의
+경우에는 어떤 라이브러리들이 있는지조차도 잘 모르는 경우가 많고, 안다고 하더라도 각
+라이브러리의 장단점을 파악하는데 시간이 걸릴 수 밖에 없다. 아울러 이 라이브러리들을 어떻게
+조립해서 사용해야 하는지도 알아야 한다.
+
+이런 문제점을 해소하기 위한 한 가지 방법으로, 이 책의 저자는
+link:http://www.luminusweb.net[Luminus] 프로젝트를 시작했다. 이 프로젝트는 저자가 좋다고
+판단한, 웹 프로그래밍에 필요한 클로저 라이브러리들을 한데 모아, 초보자들도 바로 웹
+프로그래밍을 시작할 수 있도록, 템플릿 코드를 생성해 주는 역할을 주로 담당한다. 그리고 이
+책은 이 Luminus 프로젝트를 이용해 웹 프로그래밍 하는 방법을 주로 소개하고 있다. Luminus를
+저자는 자칭 Clojure Web micro-framework로 부르고 있기는 하지만, 프레임워크라기 보다는
+라이브러리의 모음으로 구성되어 있기 때문에, 이 책의 상당 부분이 이 개별 라이브러리들에
+대한 설명으로 이루어져 있다. 그 중에서도 이 장에서는 Ring과 Compojure 라이브러리를
+집중적으로 소개한다.
+
+* Ring은 HTTP request와 response를 처리해 주는 라이브러리로, 웹 서버와 클로저 애플리케이션을
+연결해 주는 역할을 수행하는 데, 클로저 세계에서 사실상 표준적 지위를 차지하고
+있다.
+
+* Compojure는 이 Ring에 기반한 routing 라이브러리로, HTTP request URI와 request
+handler를 연결해 주는 역할을 수행한다.
+
+
+== Route Requests with Ring
+  
+Ring은 파이썬의 link:https://en.wikipedia.org/wiki/Web_Server_Gateway_Interface[WSGI]나
+루비의 link:https://en.wikipedia.org/wiki/Rack_(web_server_interface)[Rack]과 같은 일을
+수행한다.
+
+Ring은 자체로 라이브러리이기도 하지만, 웹 서버와 클로저 애플리케이션을 연결해 주는 하나의
+규약(specification)이기도 하다. 사실 Ring 라이브러리 자체도 Ring 규약을 준수하는 많은
+middleware들로 이루어져 있다. 그리고 이 규약을 준수하는 수많은 라이브러리들이 middleware의
+형태로 존재해서, 클로저 세계에서 하나의 생태계를 이루고 있다.
+
+=== Creating a Web Server
+
+먼저 다음을 실행해 rang-app 프로젝트를 생성한다.
+
+[listing]
+----
+$ lein new ring-app
+----
+
+생성된 디렉토리와 파일들은 다음과 같다.
+ 
+[listing]
+----
+$ tree ring-app
+ring-app
+├── CHANGELOG.md
+├── LICENSE
+├── README.md
+├── doc
+│   └── intro.md
+├── project.clj
+├── resources
+├── src
+│   └── ring_app
+│       └── core.clj
+└── test
+    └── ring_app
+        └── core_test.clj
+
+6 directories, 7 files
+----
+
+project.clj 파일을 열어 다음과 같이 수정해 준다.
+
+.project.clj
+[source]
+....
+(defproject ring-app "0.1.0-SNAPSHOT"
+  :description "FIXME: write description"
+  :url "http://example.com/FIXME"
+  :license {:name "Eclipse Public License"
+            :url "http://www.eclipse.org/legal/epl-v10.html"}
+  :dependencies [[org.clojure/clojure "1.8.0"]
+                 [ring "1.4.0"]]   ; <1>
+  :main ring-app.core)             ; <2>
+....
+<1> ring 라이브러리를 추가한다.
+<2> ``lein run``이 실행될 때 `-main` 함수를 호출하는데, 이 함수가 들어있는 이름공간을
+    지정해 준다.
+
+  
+=== Handling Requests
+  
+src/ring_app/core.clj 파일을 다음과 같이 수정해 준다.
+
+.src/ring_app/core.clj
+[source]
+....
+(ns ring-app.core
+  (:require [ring.adapter.jetty :as jetty]))
+
+(defn handler [request-map]
+  {:status 200
+   :headers {"Content-Type" "text/html"}
+   :body (str "<html><body> your IP is: "
+              (:remote-addr request-map)
+              "</body></html>")})
+
+(defn -main []
+  (jetty/run-jetty
+     handler
+     {:port 3000
+      :join? false}))
+....
+
+* link:https://ring-clojure.github.io/ring/ring.adapter.jetty.html[run-jetty 함수 doc-string]
+
+다음과 같이 실행해서 웹 서버를 띄운다.
+
+[listing]
+----
+$ lein run
+2016-02-17 13:21:01.416:INFO::main: Logging initialized @1464ms
+2016-02-17 13:21:01.544:INFO:oejs.Server:main: jetty-9.2.10.v20150310
+2016-02-17 13:21:01.591:INFO:oejs.ServerConnector:main: Started ServerConnector@3bf233ff{HTTP/1.1}{0.0.0.0:3000}
+2016-02-17 13:21:01.592:INFO:oejs.Server:main: Started @1640ms
+----
+
+link:http://localhost:3000[]으로 접근하면 다음과 같은 내용이 보일 것이다.
+
+[listing]
+----
+your IP is: 127.0.0.1
+----
+
+``:status``가 ``200``인 응답을 반환하는 경우는 흔한 일이어서, 이 일을 대신 해 주는 함수가
+``ring.util.response/response``에 준비되어 있다. 이 함수를 이용해 코드를 다시 작성하면
+다음과 같다.
+   
+[source]
+....
+(ns ring-app.core
+  (:require [ring.adapter.jetty :as jetty]
+            [ring.util.response :as response]))  ; <1>
+
+(defn handler [request-map]
+  (response/response   ; <2>
+    (str "<html><body> your IP is: "
+         (:remote-addr request-map)
+         "</body></html>")))
+....
+
+* link:https://github.com/ring-clojure/ring/blob/1.4.0/ring-core/src/ring/util/response.clj#L54[ring.util.response/response 소스]
+
+
+=== Request and Response Maps
+
+==== What's in the Request Map
+  
+* :server-port — 웹 서버의 포트 번호
+* :server-name — 웹 서버의 IP 주소 또는 이름
+* :remote-addr — 클라이언트의 IP 주소
+* :query-string — query 문자열
+* :scheme — 프로토콜, `:http` 또는 `:https`
+* :request-method — HTTP 요청 메소드. `:get`, `:head`, `:options`, `:put`, `:post`,
+  또는 `:delete`
+* :content-type — request body의 MIME type.
+* :content-length — request의 바이트 수
+* :character-encoding — request의 문자 인코딩
+* :headers — request 헤더를 담고 있는 맵 자료형
+* :body — request의 body
+* :uri — request URI 경로.
+* :ssl-client-cert — 클라이언트의 SSL 인증서(certificate)
+
+
+==== What's in the Response Map
+
+* :status — response의 HTTP status
+* :headers — 클라이언트에 보낼 HTTP headers (맵 자료형)
+* :body — response의 body (문자열, 클로저 시퀀스 자료형, 파일 또는 입력 스트림)
+
+
+    
+=== Middleware Pattern
+
+미들웨어 패턴은 Ring에서 뿐만 아니라 다른 라이브러리들에서도 많이 사용되는 함수형
+프로그래밍 패턴이다. Clojure 1.7.0에 도입된 transducer도 이 미들웨어 패턴을 이용하므로,
+transducer의 동작 원리를 제대로 이해하기 위해서라도 미들웨어 패턴에 대한 이해는
+필수적이다.
+
+미들웨어 패턴을 이해하려면, 먼저 '함수 객체'와 '함수 호출'을 명확하게 구분해야 한다.
+
+[source]
+....
+;; 함수를 정의한다. 함수를 정의했다고, 함수가 곧바로 호출되지는 않는다는 점에 주의한다.
+;; 함수를 정의하면, 함수 객체가 생성된 후, 그 객체를 add라는 심볼이 가리킨다.
+(defn add [a b]
+  (+ a b))
+....
+
+[listing]
+----
+심볼 add   -->   함수 객체
+----
+
+[source]
+....
+;; 심볼 add는 함수 객체를 가리킨다.
+;; 심볼 add를 평가한다고 해서, 함수 add가 실행되지는 않는다.
+add
+;=> #function[ring-app.middle/add] 
+
+;; 함수 add가 실행된다. 즉, 함수 add를 호출했다.
+(add 10 20)
+;=> 30
+....
+
+다음은 미들웨어 패턴을 이용한 코드이다.
+
+[[middleware-example]]
+[source]
+....
+(defn wrap-a [f]
+  (fn [request]
+    (println "wrap-a: request =" request)
+    (let [request' (inc request)
+          response (f request')
+          response' (+ 10 response)]
+      (println "wrap-a: response =" response')
+      response')))
+
+(defn wrap-b [f]
+  (fn [request]
+    (println "wrap-b: request =" request)
+    (let [request' (inc request)
+          response (f request')
+          response' (+ 10 response)]
+      (println "wrap-b: response =" response')
+      response')))
+
+(defn handler [request]
+  (println "handler: request =" request)
+  (let [response (+ 10 request)]
+    (println "handler: response =" response)
+    response))
+
+(def app (-> handler
+             wrap-a
+             wrap-b))
+
+(app 10)
+;>> wrap-b: request = 10
+;>> wrap-a: request = 11
+;>> handler: request = 12
+;>> handler: response = 22
+;>> wrap-a: response = 32
+;>> wrap-b: response = 42
+;=> 42
+....
+
+어! 그런데 `pass:[->]` 쓰레딩 매크로에서 지정한 순서(`wrap-a`, `wrap-b`)와는 반대(`wrap-b`,
+`wrap-a`)로 실행되었다. 왜 그럴까?
+
+그 이유는 간단하다. `(pass:[->] handler wrap-a wrap-b)` 매크로가 확장되면 ``(wrap-b (wrap-a
+handler))``로 확장되기 때문이다. 그래서 다음도 같은 결과를 낳는다.
+ 
+[source]
+....
+(def app2 (wrap-b (wrap-a handler)))
+
+(app2 10)
+;>> wrap-b: request = 10
+;>> wrap-a: request = 11
+;>> handler: request = 12
+;>> handler: response = 22
+;>> wrap-a: response = 32
+;>> wrap-b: response = 42
+;=> 42
+....
+
+위의 코드를 도식적으로 표시해 보면 다음과 같다.
+ 
+[listing]
+----
+  +-----------------------+
+  | wrap-b                |
+  |  +-----------------+  |
+  |  | wrap-a          |  |
+  |  |   +---------+   |  |
+  |  |   | handler |   |  |
+  |  |   +---------+   |  |
+  |  |                 |  |
+  |  +-----------------+  |
+  |                       |
+  +-----------------------+
+----
+
+* handler: 가장 내부에 있는 핸들러 
+* wrap-a: handler의 wrapper(= middleware)이자, wrap-b의 핸들러 
+* wrap-b: wrap-a의 wrapper(= midleware)
+
+transducer도 middleware pattern을 이용한다. 일단 실행 예제를 보자.
+
+[source]
+....
+(def t (comp (filter odd?) (map #(+ % 10))))
+
+(transduce t + (range 10))
+; => 75
+....
+
+실행 과정을 각 단계별로 살펴보면 다음과 같다.
+
+[source]
+....
+(range 10)
+;=> (0 1 2 3 4 5 6 7 8 9)
+
+(filter odd? '(0 1 2 3 4 5 6 7 8 9))
+; => (1 3 5 7 9)
+
+(map #(+ % 10) '(1 3 5 7 9))
+; => (11 13 15 17 19)
+
+(reduce + '(11 13 15 17 19))
+; => 75
+....
+
+그런데 transducer 예제를 살펴 본 사람들은, 실행 순서가 앞에서 뒤로 실행되는 사실에 의문을
+품게 된다. 필자도 처음에는 그랬다. 왜냐하면 `comp` 함수는, 다음의 예제에서처럼, 뒤에 있는
+함수부터 실행하는 것으로 알고 있었기 때문이다.
+
+[source]
+....
+((comp str +) 8 8 8)   ; => "24"
+
+(str (+ 8 8 8))        ; => "24"
+....
+
+그런데 ``transduce``는 미들웨어 패턴을 이용하고 있는 함수이다. 위의
+<<middleware-example>>에서 볼 수 있다시피, 함수의 인수가 '함수 객체'인 경우에는, 그 인수를
+전달받은 함수가, 그 함수 객체의 실행 시기를 결정할 수 있다. 즉, ``transduce``의 경우에는,
+자신이 먼저 작업을 수행한 후, 그 계산 결과를, '인수로 전달받은 함수 객체'의 인수로 다시
+넘긴 것이다.
+
+
+=== Adding Functionality with Middleware
+
+Ring은 handler와 middleware로 이루어져 있다.
+
+* handler나 middleware 모두 함수이다.
+* handler는 request 맵을 인수로 받아, response 맵을 반환한다.
+* middleware는 handler를 그 첫 번째 인수로 받고, handler를 반환한다. 
+
+[source]
+....
+(ns ring-app.core
+  (:require [ring.adapter.jetty :as jetty]
+            [ring.util.response :as response]
+            [ring.middleware.reload :refer [wrap-reload]]))
+
+(defn handler [request]
+  (response/response
+   (str "<html><body> your IP is: "
+        (:remote-addr request)
+        "</body></html>")))
+
+(defn wrap-nocache [handler]   ; <1>
+  (fn [request]
+    (-> request
+        handler
+        (assoc-in [:headers "Pragma"] "no-cache"))))
+
+(defn -main []
+  (jetty/run-jetty
+    (-> handler
+        #'wrap-nocache
+        wrap-reload)
+    {:port 3000
+     :join? false}))
+....
+
+
+=== What Are the Adapters?
+
+[listing]
+----
+Web Server <--> Ring Adapter <--> Application handlers
+----
+
+
+[listing]
+----
+                            Ring Adapter
+Web Server HTTP Request   --------------> Request Map --> Application handlers
+
+                            Ring Adapter
+Web Server HTTP Response  <-------------- Response Map <-- Application handlers
+----    
+
+Ring Adapters
+
+* ring-jetty-adapter
+* ring-undertow-adapter
+* ring-tomcat-adapter
+* ring-httpcore-adapter  
+* ring-netty-adapter
+* ......
+
+
+== Extend Ring
+
+Ring은 여러 개의 미들웨어를 차례대로 연결하는 방식으로 Request와 Response를 처리하므로,
+미들웨어들을 연결하는 순서에 신경을 써야 한다. 예를 들어, 세션 기반의 인증 미들웨어를
+사용하고자 한다면, 그 앞 단계에 세션을 처리하는 미들웨어가 놓여 있어야 한다.
+
+이 절에서는 많이 사용되고 있는 Ring 미들웨어 라이브러리들을 소개한다.
+
+=== link:https://github.com/ring-clojure/ring-defaults[ring-defaults] 라이브러리
+
+이것은 많이 사용되는 Ring 자체가 제공하는 미들웨어들을 '정해진 순서'대로 사용하기 쉽도록
+미리 구성해 놓은 라이브러리이다. 초보자들의 경우에는 미들웨어의 순서를 잘못 적용하는
+실수를 저지르기 쉬운데, 이 라이브러리를 사용하면 그런 실수를 방지할 수 있다.
+
+* api-defaults
+* site-defaults
+* secure-api-defaults
+* secure-site-defaults
+
+위의 네 가지 설정은 단순히 map 자료형이다
+(link:https://github.com/ring-clojure/ring-defaults/blob/master/src/ring/middleware/defaults.clj[source
+참고]).
+
+Luminus에서는 이중 ``site-defaults``를 디폴트로 사용하고 있다.
+
+[source]
+....
+(require '[ring.middleware.defaults :only [wrap-defaults site-defaults]])
+
+;; site-defaults에 설정된 값을 그대로 사용하고 싶은 경우 
+(def site
+  (wrap-defaults handler site-defaults))
+
+;; site-defaults에 설정된 값 중, session 기능만 사용하고 싶지 않은 경우
+(wrap-defaults handler (assoc site-defaults :session false))
+....
+
+  
+=== link:https://github.com/metosin/ring-http-response[ring-http-response] 라이브러리
+
+이 라이브러리는 HTTP 응답시 흔히 일어나는 ok, found, internal-server-error와 같은 경우를
+쉽게 처리할 수 있게 해 준다.
+
+.project.clj
+[source]
+....
+(defproject ring-app "0.1.0-SNAPSHOT"
+  ,,,,,,
+  :dependencies [[org.clojure/clojure "1.7.0"]
+                 [ring "1.4.0"]
+                 [metosin/ring-http-response "0.6.5"]]   ; <1>
+  :main ring-app.core)
+....
+
+[source]
+....
+(ns ring-app.core
+  (:require [ring.adapter.jetty :as jetty]
+            [ring.util.http-response :as response]   ; <1>
+            [ring.middleware.reload :refer [wrap-reload]]))
+
+(defn handler [request]
+  (response/ok   ; <2>
+    (str "<html><body> your IP is: "
+         (:remote-addr request)
+         "</body></html>")))
+....
+
+[source]
+....
+(response/continue)
+;=> {:status 100, :headers {}, :body ""}
+
+(response/ok "<html><body><h1>hello world</h1></body></html>")
+;=> {:status 200
+;    :headers {}
+;    :body "<html><body><h1>hello world</h1></body></html>"}
+
+(response/found "/messages")
+;=> {:status 302, :headers {"Location" "/messages"}, :body ""}
+
+(response/internal-server-error "failed to complete request")
+;=> {:status 100, :headers {}, :body "failed to complete request"}
+....
+
+
+=== link:https://github.com/ngrunwald/ring-middleware-format[ring-middleware-format] 라이브러리
+
+* 데이터 전송 포맷 각각에 해당하는 미들웨어 라이브러리가 이미 많이 있지만, 이 라이브러리는
+  여러 가지 포맷을 동시에 지원한다는 장점을 갖고 있다.
+
+* `wrap-restful-params` 미들웨어는 HTTP 요청 시, `:body` 부분에 들어 있는 JSON,
+  MessagePack, YAML, EDN, Transit over JSON or Msgpack 등으로 된 데이터 형식을, Request
+  Header의 Accept와 Content-Type의 내용을 보고, 클로저 자료형으로 변환한 후, Request map의
+  `:body-params` 키에 그 내용을 기록하고,`:params` 키의 내용에 다시 `:body-params` 키의
+  내용을 merge한다.
+
+* `wrap-restful-response` 미들웨어는 HTTP 응답시에 그 반대의 작업을 수행한다.
+
+* `wrap-restful-format` 미들웨어는 HTTP 요청과 응답 모두를 처리한다.
+
+.project.clj
+[source]
+....
+(defproject ring-app "0.1.0-SNAPSHOT"
+  ,,,,,,
+  :dependencies [[org.clojure/clojure "1.7.0"]
+                 [ring "1.4.0"]
+                 [metosin/ring-http-response "0.6.5"]
+                 [ring-middleware-format "0.7.0"]]  ; <1>
+  :main ring-app.core)
+....
+
+.사용 형식
+[source]
+....
+(wrap-restful-format handler :formats [:json :edn :transit-json :transit-msgpack])
+....
+
+* `:formats` 뒤에 처리를 원하는 데이터 전송 형식들을 벡터 안에 지정한다. 
+
+* 지원되는 데이터 형식은 다음과 같다.
++
+[listing]
+----
+:json :json-kw :msgpack :msgpack-kw :yaml :yaml-kw
+:edn :yaml-in-html :transit-json :transit-msgpack
+----
++
+``-kw``가 붙은 것들은 키를 '키워드 자료형'으로 변환하고, 붙지 않은 것들은 키를 '문자열
+자료형'으로 변환한다.
+
+  
+.사용 예 
+[source]
+....
+(ns ring-app.core
+  (:require [ring.adapter.jetty :as jetty]
+            [ring.util.http-response :as response]
+            [ring.middleware.reload :refer [wrap-reload]]
+            [ring.middleware.format :refer [wrap-restful-format]]))   ; <1>
+
+(defn handler [request]
+  (response/ok
+    {:result (-> request :params :id)}))
+
+(defn wrap-nocache [handler]
+  (fn [request]
+    (-> request
+        handler
+        (assoc-in [:headers "Pragma"] "no-cache"))))
+
+(defn wrap-formats [handler]
+  (wrap-restful-format   ; <2>
+     handler
+     :formats [:json-kw :transit-json :transit-msgpack]))
+
+(defn -main []
+  (jetty/run-jetty
+    (-> #'handler wrap-nocache wrap-reload wrap-formats)
+    {:port 3000
+     :join? false}))
+....
+
+[listing]
+----
+$ curl -H "Content-Type: application/json" -X POST -d '{"id":1}' localhost:3000/json
+{"result":1}
+----
+
+
+=== link:https://weavejester.github.io/compojure/compojure.core.html#var-wrap-routes[compojure.core/wrap-routes] 미들웨어
+
+이 미들웨어는 특정 route들에만 특정 미들웨어를 적용할 수 있게 해 준다. 다시 말해, 특정
+미들웨어를 전역으로 적용하고 싶지 않을 떄 이용하면 편리하다.
+
+.guestbook/src/clj/guestbook/handler.clj
+[source]
+....
+(def app-routes
+  (routes
+    (wrap-routes #'home-routes middleware/wrap-csrf)
+    (route/not-found
+      (:body (error-page {:status 404
+                          :title "page not found"})))))
+....
+
+
+== Define the Routes with Compojure
+
+Compojure는 Ring 기반의 라우팅(routing) 라이브러리이다. 즉, Web Request URI와 HTTP
+method에 기반해, 그에 대응하는 handler를 연결해 주는 역할을 수행한다.
+
+Compojure에는 HTTP method 각각에 대응되는 `GET`, `POST`, `PUT`, `DELETE`, `HEAD`, `ANY`
+매크로가 준비되어 있다.
+  
+[source]
+....
+(defproject ring-app "0.1.0-SNAPSHOT"
+  ,,,,,,
+  :dependencies [[org.clojure/clojure "1.7.0"]
+                 [ring "1.4.0"]
+                 [metosin/ring-http-response "0.6.5"]
+                 [ring-middleware-format "0.7.0"]
+                 [compojure "1.4.0"]]   ; <1>
+  :main ring-app.core)
+....
+
+[source]
+....
+(ns ring-app.core
+  (:require [ring.adapter.jetty :as jetty]
+            [compojure.core :as compojure]
+            [ring.util.http-response :as response]
+            [ring.middleware.reload :refer [wrap-reload]]))
+
+(defn response-handler [request]
+  (response/ok
+    (str "<html><body> your IP is: "
+         (:remote-addr request)
+         "</body></html>")))
+
+(def handler
+  (compojure/routes
+    (compojure/GET "/" request response-handler)
+    (compojure/GET "/:id" [id] (str "<p>the id is: " id "</p>" ))   ; <1>
+    (compojure/POST "/json" [id] (response/ok {:result id}))))
+....
+<1> ``http://localhost:3000/foo``로 접속하면 ``id``에 ``"foo"``가 들어가게 된다.
+
+
+`context` 매크로를 사용하면, 요청 URL을 더 간결하게 표현할 수 있다.
+
+[source]
+....
+(defn display-profile [id]
+  ;;TODO: display user profile
+)
+
+(defn display-settings [id]
+  ;;TODO: display user account settings
+)
+
+(defn change-password [id]
+  ;;TODO: display the page for setting a new password
+)
+  
+(defroutes user-routes
+  (GET "/user/:id/profile" [id] (display-profile id))
+  (GET "/user/:id/settings" [id] (display-settings id))
+  (GET "/user/:id/change-password" [id] (change-password-page id)))
+....
+
+예를 들면, 위와 같은 표현을 다음과 같이 간결하게 줄일 수 있다.
+
+[source]
+....
+(def user-routes
+  (context "/user/:id" [id]
+    (GET "/profile" [] (display-profile id))
+    (GET "/settings" [] (display-settings id))
+    (GET "/change-password" [] (change-password-page id))))
+....
+
+
+=== Accessing Request Parameters
+
+Compojure는 Compojure 고유의 destructuring(구조 분해)footnote:[클로저 언어의 구조분해와는
+방식이 다르다.] 기법을 사용한다.
+
+예를 들어 다음과 같이 실행했을 때,
+[source]
+....
+(GET "/" request-map (str request-map))
+....
+
+``request-map``의 내용이 다음과 같을 때
+
+[source]
+....
+{:ssl-client-cert nil,
+ :protocol "HTTP/1.1",
+ :remote-addr "127.0.0.1",
+ :params {:x "foo", :y "bar", :v "baz", :w "qux"},
+ :headers
+ {"accept"
+  "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+  "upgrade-insecure-requests" "1",
+  "connection" "keep-alive",
+  "user-agent"
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.109 Safari/537.36",
+  "host" "localhost:3000",
+  "accept-encoding" "gzip, deflate, sdch",
+  "accept-language"
+  "ko,en-US;q=0.8,en;q=0.6,ja;q=0.4,zh-TW;q=0.2,zh;q=0.2"},
+ :server-port 3000,
+ :content-length nil,
+ :compojure/route [:get "/:id"],
+ :content-type nil,
+ :character-encoding nil,
+ :uri "/foo",
+ :server-name "localhost",
+ :query-string nil,
+ :body
+ #object[org.eclipse.jetty.server.HttpInputOverHTTP 0x10659209 "HttpInputOverHTTP@10659209"],
+ :scheme :http,
+ :request-method :get} 
+....
+
+[source]
+....
+(GET "/" {{value :x} :params}    ; <1>
+  (str "The value of x is " value))
+;; x => "foo"
+
+(GET "/" [x y & z]   ; <2> <3>
+  (str "The values of x, y, and z are " x y z))
+;; x => "foo"
+;; y => "bar"
+;; z => {:v "baz", :w "qux"}
+....
+<1> `request-map` 인수 자리에 맵 형식이 오면, ``request-map``을 대상으로 구조분해가 이루어진다.
+<2> `request-map` 인수 자리에 벡터 형식이 오면, ``request-map``의 ``:params``를 대상으로 구조분해가 이루어진다.
+<3> 클로저 언어의 구조분해에서는 ``& z``의 결과가 시퀀스 자료형이지만, Compojure에서는 맵 자료형인 것에 주의해야 한다. 
+ 
