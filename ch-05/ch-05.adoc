@@ -1,0 +1,506 @@
+= Real-time Messaging With Websockets
+:sectnums:
+:source-language: clojure
+:source-highlighter: coderay
+:icons: font
+
+전통적인 웹 프로그램에서는 클라이언트가 먼저 요청을 하고 서버가 응답하는 방식으로 통신이
+이루어진다. 그 반대의 경우, 즉 서버가 먼저 요청을 보내고 클라인언트가 응답하는 방식은
+불가능했다. 하지만, 채팅 프로그램 같은 경우에는 서버가 한 개의 클라이언트에서 받은
+메시지를 모든 클라인어트들에 다시 보낼 필요가 있다. 이때 서버가 먼저 클라이언트에게
+메시지를 보낼 수는 없기 때문에, Ajax polling 방식을 주로 사용한다. 즉, 각 클라이언트가
+주기적으로 서버로 요청을 반복적으로 보내는 방식으로 처리했는데, 이 경우에는
+클라이언트/서버 모두 컴퓨팅 자원을 많이 소모하게 된다는 단점이 있다. 이런 문제점을
+해결하기 위해 등장한 것이 바로 웹 소켓(Web Socket)이다. 웹 소켓은 기존의 TCP/IP 소켓
+프로그래밍을 웹의 클라이언트/서버 통신에서도 가능하게 해 주는 기술이다.
+
+  
+== Set Up Websockets on the Server
+
+웹 소컷은 웹 서버와 클라이언트 모두 지원해야 한다. 브라우저는 표준 API가 있는 데 반해,
+서버는 표준화된 방식이 없다. 이 장에서는 Luminus에서 기본으로 사용하고 있는 Immutant 웹
+서버의 사용 예를 보여준다.
+
+=== Add Websocket Routes
+
+.guestbook-websockets/src/clj/guestbook/routes/ws.clj
+[source]
+....
+(ns guestbook.routes.ws
+  (:require [compojure.core :refer [GET defroutes]]
+            [clojure.tools.logging :as log]
+            [immutant.web.async :as async]    ; <1>
+            [cognitect.transit :as transit]   ; <2>
+            [bouncer.core :as b]
+            [bouncer.validators :as v]
+            [guestbook.db.core :as db]))
+....
+<1> immutant 웹 서버에서 웹 소켓 연결을 지원하는 이름공간
+<2> transit 포맷의 메시지를 encode/decode 한다.
+
+  
+==== transit encode/decode
+
+* Ajax 라이브러리를 사용할 때에는, 서버의 미들웨어(ring-middleware-format)가 transit
+  포맷을 자동으로 encode/decode해 주었지만, 웹 소켓에서는 수작업으로 직접 해 주어야 해서
+  cognitect.transit 라이브러리가 필요하다.
+
+.guestbook-websockets/src/clj/guestbook/routes/ws.clj  
+[source]
+....
+;; 서버에서 클라이언트로 메시지를 보낼 때 transit 포맷으로 encode한다.
+(defn encode-transit [message]
+  (let [out    (java.io.ByteArrayOutputStream. 4096)
+        writer (transit/writer out :json)]
+    (transit/write writer message)
+    (.toString out)))
+
+;; 클라이언트에서 서버로 보내온 transit 포맷의 메시지를 decode한다.
+(defn decode-transit [message]
+  (let [in (java.io.ByteArrayInputStream. (.getBytes message))
+        reader (transit/reader in :json)]
+    (transit/read reader)))
+....
+
+==== 채널의 관리
+
+* Immutant 웹 서버는 웹 소켓을 채널로 관리한다. 클라이언트들을 구분할 때 사용하기 위해 이
+  채널들을 ``channels``에 저장한다.
+ 
+.guestbook-websockets/src/clj/guestbook/routes/ws.clj   
+[source]
+....
+(defonce channels (atom #{}))
+
+(defn connect! [channel]
+  (log/info "channel open")
+  (swap! channels conj channel))
+
+(defn disconnect! [channel {:keys [code reason]}]
+  (log/info "close code:" code "reason:" reason)
+  (swap! channels #(remove #{channel} %)))
+....
+
+==== 메시지 처리
+
+.guestbook-websockets/src/clj/guestbook/routes/ws.clj   
+[source]
+....
+(defn handle-message! [channel message]
+  (let [response (-> message
+                     decode-transit
+                     (assoc :timestamp (java.util.Date.))
+                     save-message!)]
+    (if (:errors response)
+      (async/send! channel (encode-transit response))
+      (doseq [channel @channels]
+        (async/send! channel (encode-transit response))))))
+
+(defn ws-handler [request]
+  (async/as-channel
+    request
+    {:on-open    connect!
+     :on-close   disconnect!
+     :on-message handle-message!}))
+
+(defroutes websocket-routes
+  (GET "/ws" [] ws-handler))
+....
+
+link:http://immutant.org/documentation/2.0.2/apidoc/immutant.web.async.html[]
+
+  
+=== Update the Handler
+
+.guestbook-websockets/src/clj/guestbook/handler.clj 
+[source]
+....
+(ns guestbook.handler
+  (:require ,,,,,,
+            [guestbook.routes.ws :refer [websocket-routes]]))
+,,,,,,
+(def app-routes
+  (routes
+    #'websocket-routes
+    (wrap-routes #'home-routes middleware/wrap-csrf)
+    (route/not-found
+      (:body
+        (error-page {:status 404
+                     :title "page not found"})))))
+....
+
+
+== Make Websockets from ClojureScript
+
+=== transit encode/decode
+
+.guestbook-websockets/src/cljs/guestbook/ws.cljs
+[source]
+....
+(ns guestbook.ws
+  (:require [cognitect.transit :as t]))
+
+(def json-reader (t/reader :json))
+(def json-writer (t/writer :json))
+
+(defn receive-message! [handler]
+  (fn [msg]
+    (->> msg .-data (t/read json-reader) handler)))
+
+(defn send-message! [msg]
+  (if @ws-chan
+    (->> msg (t/write json-writer) (.send @ws-chan))
+    (throw (js/Error. "Websocket is not available!"))))
+....
+
+=== 웹 소켓 생성 및 연결
+  
+.guestbook-websockets/src/cljs/guestbook/ws.cljs
+[source]
+....
+(defonce ws-chan (atom nil))
+
+(defn connect! [url receive-handler]
+  (if-let [chan (js/WebSocket. url)]
+    (do
+      (set! (.-onmessage chan) (receive-message! receive-handler))
+      (reset! ws-chan chan))
+    (throw (js/Error. "Websocket connection failed!"))))
+....
+
+
+=== Reagent Component 생성
+  
+[source]
+....
+(ns guestbook.core
+  (:require [reagent.core :as reagent :refer [atom]]
+            [ajax.core :refer [GET]]
+            [guestbook.ws :as ws]))
+
+,,,,,,
+(defn message-form [fields errors]
+  [:div.content
+   [:div.form-group
+    [errors-component errors :name]
+    [:p "Name:"
+     [:input.form-control
+      {:type      :text
+       :on-change #(swap! fields assoc :name (-> % .-target .-value))
+       :value     (:name @fields)}]]
+    [errors-component errors :message]
+    [:p "Message:"
+     [:textarea.form-control
+      {:rows      4
+       :cols      50
+       :value     (:message @fields)
+       :on-change #(swap! fields assoc :message (-> % .-target .-value))}]]
+    [:input.btn.btn-primary
+     {:type     :submit
+      :on-click #(ws/send-message! @fields)   ; <1>
+      :value    "comment"}]]])
+
+(defn response-handler [messages fields errors]
+  (fn [message]
+    (if-let [response-errors (:errors message)]
+      (reset! errors response-errors)
+      (do
+        (reset! errors nil)
+        (reset! fields nil)
+        (swap! messages conj message)))))   ; <2>
+
+(defn home []
+  (let [messages (atom nil)
+        errors   (atom nil)
+        fields   (atom nil)]
+  
+    ;; 웹 소켓을 생성하고 콜백 함수를 연결한다.
+    (ws/connect! (str "ws://" (.-host js/location) "/ws")
+                 (response-handler messages fields errors))
+  
+    ;; 서버에서 메시지들을 가져 온다.
+    (get-messages messages)
+
+    ;; DOM을 그린다.
+    (fn []
+      [:div
+       [:div.row
+        [:div.span12
+         [message-list messages]]]
+       [:div.row
+        [:div.span12
+         [message-form fields errors]]]])))
+
+(reagent/render
+  [home]
+  (.getElementById js/document "content"))
+....
+<1> 폼내의 필드 값들을 웹소켓을 통해 서버로 보낸다.
+<2> 서버에서 받은 메시지 하나를 messages 아톰에 추가한다.
+
+  
+== Websockets Using Sente
+
+link:https://github.com/ptaoussanis/sente[]
+
+Sente 라이브러리는 웹 서버/클라이언트 모두에서 사용할 수 있는 웹 소켓 라이브라리로 다음과
+같은 기능을 제공한다.
+
+* Ajax fallback support — 클라이언트가 웹 소켓을 지원하지 않을 경우에는 자동적으로 Ajax
+  polling으로 전환한다.
+* keep-alives — keep-alive 기능을 대신해 준다.
+* buffering — 메시지를 버퍼링한다. core.async가 일종의 큐 역할을 대신할 수 있어서 가능.
+* data encoding — 메시지 포맷을 자동으로 변환해 준다.
+* Ring security — Ring anti-forgery middleware와 호환되는 기능을 구현
+
+이 절에서는 앞 절에서 구현한 웹 소켓 기능을 Sente 라이브러리를 사용해서 재구현한다.
+   
+   
+=== Update the Server
+
+.project.clj
+[source]
+....
+(defproject guestbook "0.1.0-SNAPSHOT"
+  :dependencies [,,,,,,
+                 [com.taoensso/timbre "4.2.1"]
+                 [com.taoensso/sente "1.8.0-beta1"]
+                 [com.taoensso/tower "3.0.2"]])
+  ,,,,,,
+....
+
+.guestbook-sente/src/clj/guestbook/routes/ws.clj
+[source]
+....
+(ns guestbook.routes.ws
+  (:require [compojure.core :refer [GET POST defroutes]]
+            [bouncer.core :as b]
+            [bouncer.validators :as v]
+            [guestbook.db.core :as db]
+            [mount.core :refer [defstate]]
+            [taoensso.sente :as sente]              ; <1>
+            [taoensso.sente.server-adapters.immutant
+             :refer [sente-web-server-adapter]]))   ; <2>
+....
+
+Sente는 메시지 포맷을 자동으로 변환해 주므로, transit 관련 라이브러리가 필요 없다. 또한
+연결된 클라이언트들을 자동으로 관리해 주므로 session 관리를 따로 해줄 필요가 없다.
+
+==== Sente 라이브러리 초기화
+
+Sente는 `sente/make-channel-socket!` 함수를 통해 라이브러리를 초기화 해준다.
+
+.guestbook-sente/src/clj/guestbook/routes/ws.clj
+[source]
+....
+(let [connection (sente/make-channel-socket!
+                   sente-web-server-adapter
+                   {:user-id-fn
+                    (fn [ring-req] (get-in ring-req [:params :client-id]))})]
+  (def ring-ajax-post (:ajax-post-fn connection))
+  (def ring-ajax-get-or-ws-handshake (:ajax-get-or-ws-handshake-fn connection))
+  (def ch-chsk (:ch-recv connection))
+  (def chsk-send! (:send-fn connection))
+  (def connected-uids (:connected-uids connection)))
+....
+
+이 함수는 server adapter와 초기화 옵션을 담은 맵을 인자로 받아, 다음과 같은 정보를 담고
+있는 맵을 리턴값으로 반환한다.
+
+* :ajax-post-fn — Ajax POST request를 처리하는 함수
+* :ajax-get-or-ws-handshake-fn — 초기 연결을 처리하는 함수
+* :ch-recv — 수신 채널 소켓으로, ``core.async``의 ``go-loop``을 이용한다
+* :send-fn — 메지시를 클라이언트에게 보낼 때 사용하는 함수
+* :connected-uids — 연결된 모든 클라이언트의 id를 담고 있는 아톰
+
+==== handle-message!
+  
+.guestbook-sente/src/clj/guestbook/routes/ws.clj
+[source]
+....
+(defn handle-message! [{:keys [id client-id ?data]}]
+  (println "\n\n+++++++ GOT MESSAGE:" id (keys ?data))
+  (when (= id :guestbook/add-message)
+    (let [response (-> ?data
+                       (assoc :timestamp (java.util.Date.))
+                       save-message!)]
+      (if (:errors response)
+        (chsk-send! client-id [:guestbook/error response])
+        (doseq [uid (:any @connected-uids)]
+          (chsk-send! uid [:guestbook/add-message response]))))))
+....
+
+* `:id` — 처리할 작업의 종류를 구분하기 위해 Sente에서 사용한다. 이 예제에서는
+  클라이언트에서 지정해 준 `:guestbook/add-message` 한 개만 사용한다.
+
+* `:client-id` — 접속한 클라이언트를 구분하기 위해 사용한다. 이것은 Sente 라이브러리가
+  자동으로 생성해 주는 UUID이다.
+
+* `:?data` — 클라이언트에서 수신한 메시지를 담고 있다.
+
+이 함수는 `sente/start-chsk-router!` 함수를 이용해 callback 함수로 다음과 같이 등록된다.
+
+.guestbook-sente/src/clj/guestbook/routes/ws.clj
+[source]
+....
+(defn stop-router! [stop-fn]
+  (when stop-fn (stop-fn)))
+
+(defn start-router! []
+  (println "\n\n+++++++ STARTING ROUTER! +++++++\n\n")
+  (sente/start-chsk-router! ch-chsk handle-message!))
+
+(defstate router
+  :start (start-router!)
+  :stop (stop-router! router))
+
+
+(defroutes websocket-routes
+  (GET "/ws" req (ring-ajax-get-or-ws-handshake req))
+  (POST "/ws" req (ring-ajax-post req)))
+....
+
+
+=== Updating the Client
+
+==== 웹 소켓 연결
+
+.guestbook-sente/src/cljs/guestbook/ws.cljs
+[source]
+....
+(ns guestbook.ws
+  (:require [taoensso.sente :as sente]))
+
+(let [connection (sente/make-channel-socket! "/ws"             ; <1>
+                                             {:type :auto})]   ; <2>
+  (def ch-chsk (:ch-recv connection))    ; ChannelSocket's receive channel
+  (def send-message! (:send-fn connection)))
+....
+<1> 웹 소켓 연결시 경로명. 이 경로명은 웹 소켓 초기 연결 or ajax polling시 사용한다.
+<2> 웹 브라우저가 웹 소켓을 지원하지 않을 때에는 자동으로 ajax polling 방식을 사용하도록 설정.
+
+
+==== 이벤트 핸들러의 정의
+
+Sente에서는 이벤트 핸들러를 통해 웹 소켓 통신을 하도록 설계되어 있어, 먼저 이곳에서 각
+이벤트 핸들러를 정의한다.
+
+.guestbook-sente/src/cljs/guestbook/ws.cljs
+[source]
+....
+(defn state-handler [{:keys [?data]}]
+  (.log js/console (str "state changed: " ?data)))
+
+(defn handshake-handler [{:keys [?data]}]
+  (.log js/console (str "connection established: " ?data)))
+
+(defn default-event-handler [ev-msg]
+  (.log js/console (str "Unhandled event: " (:event ev-msg))))
+
+;; 이 함수의 반환값은 sente/start-chsk-router! 함수의 인수로 쓰인다.
+(defn event-msg-handler [& [{:keys [message state handshake]
+                             :or {state state-handler
+                                  handshake handshake-handler}}]]
+  (fn [ev-msg]
+    (case (:id ev-msg)
+      :chsk/handshake (handshake ev-msg)
+      :chsk/state (state ev-msg)
+      :chsk/recv (message ev-msg)
+      (default-event-handler ev-msg))))
+....
+
+  
+==== 이벤트 핸들러 등록
+
+앞에서 정의한 이벤트 핸들러들을 `sente/start-chsk-router!` 함수의 인수로 등록한다.
+
+.guestbook-sente/src/cljs/guestbook/ws.cljs
+[source]
+....
+(def router (atom nil))
+
+(defn stop-router! []
+  (when-let [stop-f @router] (stop-f)))
+
+(defn start-router! [message-handler]
+  (stop-router!)
+  (reset! router (sente/start-chsk-router!
+                   ch-chsk
+                   (event-msg-handler
+                     {:message   message-handler
+                      :state     handshake-handler
+                      :handshake state-handler}))))
+....
+
+
+==== message-form
+
+[source]
+....
+(ns guestbook.core
+  (:require [reagent.core :as reagent :refer [atom]]
+            [ajax.core :refer [GET]]
+            [guestbook.ws :as ws]))
+,,,,,,
+  
+(defn message-form [fields errors]
+  [:div.content
+   [:div.form-group
+    [errors-component errors :name]
+    [:p "Name:"
+     [:input.form-control
+      {:type      :text
+       :on-change #(swap! fields assoc :name (-> % .-target .-value))
+       :value     (:name @fields)}]]
+    [errors-component errors :message]
+    [:p "Message:"
+     [:textarea.form-control
+      {:rows      4
+       :cols      50
+       :value     (:message @fields)
+       :on-change #(swap! fields assoc :message (-> % .-target .-value))}]]
+    [:input.btn.btn-primary
+     {:type     :submit
+      :on-click #(ws/send-message! [:guestbook/add-message @fields] 8000)   ; <1>
+      :value    "comment"}]]])
+....
+
+  
+==== Reagent DOM
+
+[source]
+....
+;; 서버로부터 받은 메시지 하나를 처리하는 함수
+(defn response-handler [messages fields errors]
+  (fn [{[_ message] :?data}]
+    (if-let [response-errors (:errors message)]
+      (reset! errors response-errors)
+      (do
+        (reset! errors nil)
+        (reset! fields nil)
+        (swap! messages conj message)))))
+
+(defn home []
+  (let [messages (atom nil)
+        errors   (atom nil)
+        fields   (atom nil)]
+
+    ;; 각종 이벤트 처리 함수들을 등록한다.
+    (ws/start-router! (response-handler messages fields errors))
+
+    ;; 서버로부터 모든 메시지를 가져 온다.
+    (get-messages messages)
+    (fn []
+      [:div
+       [:div.row
+        [:div.span12
+         [message-list messages]]]
+       [:div.row
+        [:div.span12
+         [message-form fields errors]]]])))
+
+(reagent/render
+  [home]
+  (.getElementById js/document "content"))
+....
+
