@@ -6,7 +6,8 @@
             [goog.history.EventType :as HistoryEventType]
             [markdown.core :refer [md->html]]
             [picture-gallery.ajax :refer [load-interceptors!]]
-            [ajax.core :refer [GET POST]])
+            [ajax.core :refer [GET POST]]
+            [picture-gallery.components.registration :as reg])
   (:import goog.History))
 
 (defn nav-link [uri title page collapsed?]
@@ -55,7 +56,9 @@
    :about #'about-page})
 
 (defn page []
-  [(pages (session/get :page))])
+  [:div
+   [reg/registration-form]
+   [(pages (session/get :page))]])
 
 ;; -------------------------
 ;; Routes
@@ -89,6 +92,5 @@
 
 (defn init! []
   (load-interceptors!)
-  (fetch-docs!)
   (hook-browser-navigation!)
   (mount-components))
