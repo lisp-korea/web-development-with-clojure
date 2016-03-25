@@ -14,13 +14,22 @@
    (s/optional-key :message) String})
 
 (defapi service-routes
-        {:swagger {:ui "/swagger-ui"
-                   :spec "/swagger.json"
-                   :data {:info {:version "1.0.0"
-                                 :title "Picture Gallery API"
-                                 :description "Public Services"}}}}
-        (POST "/register" req
-              :return Result
-              :body [user UserRegistration]
-              :summary "register a new user"
-              (auth/register! req user)))
+  {:swagger {:ui   "/swagger-ui"
+             :spec "/swagger.json"
+             :data {:info {:version     "1.0.0"
+                           :title       "Picture Gallery API"
+                           :description "Public Services"}}}}
+  (POST "/register" req
+        :return Result
+        :body [user UserRegistration]
+        :summary "register a new user"
+        (auth/register! req user))
+  (POST "/login" req
+        :header-params [authorization :- String]
+        :summary "login the user and create a session"
+        :return Result
+        (auth/login! req authorization))
+  (POST "/logout" []
+        :summary "remove user session"
+        :return Result
+        (auth/logout!)))
