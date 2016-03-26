@@ -1,0 +1,770 @@
+= Chapter 7. Database Access
+:sectnums:
+:source-language: clojure
+:source-highlighter: coderay
+:icons: font
+
+[sidebar]
+.이 장의 목표
+****
+* 전반부에서는 HugSQL과 clojure.java.jdbc 라이브러리를 이용해 SQL 데이터베이스에 접근하는
+  법을 배운다. 대부분의 클로저 데이터베이스 라이브러리는 내부적으로 clojure.java.jdbc를
+  이용한다. 그 중의 하나가 이 장에서 보여줄 HugSQL이다.
+
+* 후반부에서는 서버에서 DB에 담긴 데이터를 꺼내 와 간단한 pdf 파일을 만든 후에, 이것을
+  클라이언트로 전송하는 예를 보여준다.
+****
+
+
+  
+== PostgreSQL
+
+=== PostgreSQL 설치 (on Ubuntu)
+  
+[listing]
+----
+$ sudo apt-get install postgresql
+
+$ sudo -u postgres psql
+psql (9.4.5)
+Type "help" for help.
+
+postgres=# help
+You are using psql, the command-line interface to PostgreSQL.
+Type:  \copyright for distribution terms
+       \h for help with SQL commands
+       \? for help with psql commands
+       \g or terminate with semicolon to execute query
+       \q to quit
+
+postgres=# \l
+                                  List of databases
+   Name    |  Owner   | Encoding |   Collate   |    Ctype    |   Access privileges   
+-----------+----------+----------+-------------+-------------+-----------------------
+ postgres  | postgres | UTF8     | ko_KR.UTF-8 | ko_KR.UTF-8 | 
+ template0 | postgres | UTF8     | ko_KR.UTF-8 | ko_KR.UTF-8 | =c/postgres          +
+           |          |          |             |             | postgres=CTc/postgres
+ template1 | postgres | UTF8     | ko_KR.UTF-8 | ko_KR.UTF-8 | =c/postgres          +
+           |          |          |             |             | postgres=CTc/postgres
+(3 rows)
+
+postgres=# \q
+
+$ 
+----
+
+
+=== PostgreSQL 패스워드 설정
+
+[listing]
+----
+$ sudo -u postgres psql postgres
+
+postgres=# \password postgres
+Enter new password: 
+Enter it again: 
+----
+
+
+=== User 및 Database 생성
+
+[listing]
+----
+$ sudo -u postgres psql postgres
+
+postgres=# CREATE USER admin WITH PASSWORD 'admin';
+CREATE ROLE
+
+postgres=# CREATE DATABASE REPORTING OWNER admin;
+CREATE DATABASE
+
+postgres=# \l
+                                  List of databases
+   Name    |  Owner   | Encoding |   Collate   |    Ctype    |   Access privileges   
+-----------+----------+----------+-------------+-------------+-----------------------
+ postgres  | postgres | UTF8     | ko_KR.UTF-8 | ko_KR.UTF-8 | 
+ reporting | admin    | UTF8     | ko_KR.UTF-8 | ko_KR.UTF-8 | 
+ template0 | postgres | UTF8     | ko_KR.UTF-8 | ko_KR.UTF-8 | =c/postgres          +
+           |          |          |             |             | postgres=CTc/postgres
+ template1 | postgres | UTF8     | ko_KR.UTF-8 | ko_KR.UTF-8 | =c/postgres          +
+           |          |          |             |             | postgres=CTc/postgres
+(4 rows)
+----
+
+  
+== Accessing the Database with clojure.java.jdbc 
+
+먼저 leinngen을 이용해 db-examples 프로젝트를 생성한다.
+  
+[listing]
+----
+$ lein new db-examples
+----
+
+.db-examples/project.clj
+[source]
+....
+(defproject db-examples "0.1.0-SNAPSHOT"
+  :dependencies [[org.clojure/clojure "1.8.0"]
+                 [org.clojure/java.jdbc "0.4.2"]                 ; <1>
+                 [org.postgresql/postgresql "9.4-1201-jdbc41"]   ; <2>
+                 [com.layerware/hugsql "0.4.1"]])
+....
+
+
+=== Database connection map 만들기
+
+[source]
+.src/db_examples/core.clj
+....
+(ns db-examples.core
+  (:require [clojure.java.jdbc :as sql]))
+
+;; db connection map
+(def db {:subprotocol "postgresql"
+         :subname "//localhost/reporting"
+         :user "admin"
+         :password "admin"})
+....
+
+=== 테이블 생성하기
+
+[source]
+.src/db_examples/core.clj
+....
+(defn create-users-table! []
+  (sql/db-do-commands db
+    (sql/create-table-ddl
+      :users
+      [:id "varchar(32) PRIMARY KEY"]
+      [:pass "varchar(100)"])))
+....
+
+[listing]
+----
+(create-users-table!)
+; => (0)
+----
+
+
+DDL(Data Definition Language):: 데이터베이스의 스키마 객체를 생성(CREATE), 변경(ALTER),
+  제거(DROP) 하거나 권한의 부여나 박탈(GRANT, REVOKE), 주석(COMMENT), 자료의
+  버림(TRUNCATE) 등을 수행하는 문장의 집단을 의미한다. 각 문장은 CREATE, ALTER, DROP,
+  TRUNCATE, GRANT, REVOKE, COMMENT 등으로 시작한다.
+
+
+=== Creating Recoords
+
+[source]
+.src/db_examples/core.clj
+....
+(defn add-user! [user]
+  (sql/insert! db :users user))
+
+(defn add-users! [& users]
+  (apply sql/insert! db :users users))
+....
+
+[listing]
+----
+(add-user! {:id "foo" :pass "bar"})
+; => ({:id "foo", :pass "bar"})
+
+(get-user "foo")
+; => {:id "foo", :pass "bar"}
+
+(add-users!
+  {:id "foo1" :pass "bar1"}
+  {:id "foo2" :pass "bar2"}
+  {:id "foo3" :pass "bar3"})
+; => ({:id "foo1", :pass "bar1"}
+;     {:id "foo2", :pass "bar2"}
+;     {:id "foo3", :pass "bar3"})
+
+(get-all-users)
+; => ({:id "foo", :pass "bar"}
+;     {:id "foo1", :pass "bar1"}
+;     {:id "foo2", :pass "bar2"}
+;     {:id "foo3", :pass "bar3"})
+
+;; 위의 add-users! 함수 대신 다음과 같이 실행해도 같은 결과를 얻는다.
+; (sql/insert! db :users [:id :pass]
+;                        ["foo1" "bar1"]
+;                        ["foo2" "bar2"]
+;                        ["foo3" "bar3"])
+----
+
+  
+=== Reading Records
+
+[source]
+.src/db_examples/core.clj
+....
+(defn get-user [id]
+  (first (sql/query db ["select * from users where id = ?" id])))
+
+(defn get-all-users []
+  (sql/query db ["select * from users"]))
+....
+
+
+=== Updating Records
+[source]
+.src/db_examples/core.clj
+....
+(defn set-pass! [id pass]
+  (sql/update!
+   db
+   :users
+   {:pass pass}
+   ["id=?" id]))
+....
+
+[listing]
+----
+(set-pass! "foo" "baz")
+; => (1)
+
+(get-user "foo")
+; => {:id "foo", :pass "baz"}
+----
+
+
+=== Deleting Records
+  
+[source]
+.src/db_examples/core.clj
+....
+(defn remove-user! [id]
+  (sql/delete! db :users ["id=?" id]))
+....
+
+[listing]
+----
+(remove-user! "foo")
+; => (1)
+
+(get-all-users)
+; => ({:id "foo1", :pass "bar1"}
+;     {:id "foo2", :pass "bar2"}
+;     {:id "foo3", :pass "bar3"})
+----
+
+
+=== Transactions
+
+[source]
+.src/db_examples/core.clj
+....
+(sql/with-db-transaction [t-conn db]
+  (sql/update!
+    t-conn
+    :users
+    {:pass "baz1"}
+    ["id=?" "foo1"])
+  (sql/update!
+    t-conn
+    :users
+    {:pass "baz2"}
+    ["id=?" "foo2"]))
+; => (1)
+
+(get-all-users)
+; => ({:id "foo1", :pass "baz1"}
+;     {:id "foo2", :pass "baz2"}
+;     {:id "foo3", :pass "bar3"})
+....
+
+
+== Use HugSQL
+
+HugSQL은 SQL query문과 클로저 코드를 서로 다른 파일에 분리한 후, 이 둘을 `def-db-fns`
+매크로를 통해 데이터베이스 처리 함수를 컴파일 타임에 생성한다.
+
+
+=== 사용 예
+
+.users.sql
+[listing]
+----
+-- :name add-user!
+-- :command :execute
+-- :result :affected
+-- :doc  adds a new user
+INSERT INTO users
+  (id, pass)
+  VALUES (:id, :pass)
+----
+
+다음은 위의 내용을 간결하게 표현한 것으로 서로 등가이다. 즉, ``:name <function-name>
+<command-flag> <result-flag>``과 같은 방식으로 한 줄로 줄여 쓸 수 있다.
+   
+.resources/users.sql
+[listing]
+----
+-- :name add-user! :! :n
+-- :doc  adds a new user
+INSERT INTO users
+  (id, pass)
+  VALUES (:id, :pass)
+----
+
+[source]
+.src/db_examples/hugsql.clj
+....
+(ns db-examples.hugsql
+    (:require [db-examples.core :refer [db]]
+              [clojure.java.jdbc :as sql]
+              [hugsql.core :as hugsql]))
+
+;; users.sql 파일은 class-path에 지정된 경로를 탐색해 찾는다.
+(hugsql/def-db-fns "users.sql")
+
+(add-user! db {:id "apple" :pass "delicious"})
+; => 1
+....
+
+=== Command Flags
+
+* :query or :? — indicates a query with a result set
+* :execute or :! — can be used for any statement
+* :returning-execute or :<! — used to indicate an INSERT ... RETURNING query
+* :insert or :i! — will attempt to return the generated keys
+
+=== Result Flags
+  
+* :one or :1 — a result with a single row
+* :many or :* — a result with multiple rows
+* :affected or :n — the number of affected rows
+* :raw — returns the result generated by the underlying database adapter
+
+=== INSERT ... returning
+
+[listing]
+.resources/users.sql
+----
+-- :name add-user-returning! :i :1
+-- :doc  adds a new user returning the id
+INSERT INTO users
+  (id, pass)
+  VALUES (:id, :pass)
+  returning id
+----
+
+[source]
+.src/db_examples/hugsql.clj
+....
+(add-user-returning! db {:id "banana", :pass "tasty"}) 
+; => {:id "banana"}
+....
+
+
+=== `:t*` (tuple list)
+
+[listing]
+.resources/users.sql
+----
+-- :name add-users! :! :n
+-- :doc add multiple users
+INSERT INTO users
+  (id, pass)
+  VALUES :t*:users
+----
+
+[source]
+.src/db_examples/hugsql.clj
+....
+(add-users! db {:users
+                [["bob" "Bob"]
+                 ["alice" "Alice"]]})
+; => 2
+....
+
+
+=== `:v*` (in-list queries)
+
+
+[listing]
+.resources/users.sql
+----
+-- :name find-users :? :*
+-- find users with a matching ID
+SELECT *
+  FROM users
+  WHERE id IN (:v*:ids)
+----
+
+[source]
+.src/db_examples/hugsql.clj
+....
+(find-users db {:ids ["foo" "bar" "baz"]})
+; => ({:id "bob", :pass "Bob"}
+;     {:id "alice", :pass "Alice"})
+....
+
+
+=== Transaction
+
+[source]
+.src/db_examples/hugsql.clj
+....
+(defn add-user-transaction [user]
+  (sql/with-db-transaction [t-conn db]
+    (if-not (find-user t-conn {:id (:id user)})
+       (add-user! t-conn user))))
+
+(add-user-transaction {:id "foobar"
+                       :pass "I'm transactional"})
+; => 1
+....
+
+
+== Generate Reports
+
+clj-pdf 라이브러리를 이용해 동적으로 pdf를 서버에서 만든 후에, 클라이언트의 요청에 따라
+pdf를 제공하는 프로젝트의 예를 보여 준다.
+
+
+=== 프로젝트 만들기
+  
+먼저 lein으로 reporting-example이라는 프로젝트를 만든다.
+
+[listing]
+----
+lein new luminus reporting-example +postgres
+----
+
+project.clj의 :depedencies에 다음을 추가한다.
+
+
+[source]
+.project.clj
+....
+(defproject reporting-example "0.1.0-SNAPSHOT"
+  ,,,,,,
+  :dependencies [,,,,,,
+                 [clj-pdf "2.2.0"]]
+....
+
+profiles.clj 파일을 다음과 같은 내용으로 만든다.
+  
+[source]
+.profiles.clj
+....
+{:profiles/dev
+ {:env
+  {:database-url
+   "jdbc:postgresql://localhost/reporting?user=admin&password=admin"}}
+ :profiles/test
+ {:env
+  {:database-url
+   "jdbc:postgresql://localhost/report_test?user=admin&password=admin"}}}
+....
+
+
+=== migration 파일 만들기
+
+[source]
+.resources/migrations/201504171229-add-users-table.up.sql
+....
+CREATE TABLE employee
+  (name VARCHAR(50),
+   occupation VARCHAR(50),
+   place VARCHAR(50),
+   country VARCHAR(50));
+....
+
+[source]
+.resources/migrations/201504171229-add-users-table.down.sql
+....
+DROP TABLE employee;
+....
+
+다음과 같이 실행해 employee 테이블을 만든다.
+
+[listing]
+----
+$ lein run migrate
+----
+
+=== Serializing and Deserializing Data Based on Its Type
+
+[listing]
+----
+                               serialize
+Clojure/Java Data Types  -------------------->  SQL Data Types
+                         <--------------------
+                              deserialize
+----
+
+
+==== Serializing
+
+[source]
+.src/clj/reporting_example/db/core.clj
+....
+(ns reporting-example.db.core
+  (:require
+    [cheshire.core :refer [generate-string parse-string]]
+    [clojure.java.jdbc :as jdbc]
+    [conman.core :as conman]
+    [config.core :refer [env]]
+    [mount.core :refer [defstate]])
+  (:import org.postgresql.util.PGobject
+           org.postgresql.jdbc4.Jdbc4Array
+           clojure.lang.IPersistentMap
+           clojure.lang.IPersistentVector
+           [java.sql
+            BatchUpdateException
+            Date
+            Timestamp
+            PreparedStatement]))
+
+,,,,,,
+(extend-type java.util.Date
+  jdbc/ISQLParameter
+  (set-parameter [v ^PreparedStatement stmt idx]
+    (.setTimestamp stmt idx (Timestamp. (.getTime v)))))
+
+(defn to-pg-json [value]
+  (doto (PGobject.)
+    (.setType "jsonb")
+    (.setValue (generate-string value))))
+
+(extend-protocol jdbc/ISQLValue
+  IPersistentMap
+  (sql-value [value] (to-pg-json value))
+  IPersistentVector
+  (sql-value [value] (to-pg-json value)))
+....
+
+* link:https://github.com/clojure/java.jdbc/blob/master/src/main/clojure/clojure/java/jdbc.clj#L314[jdbc/ISQLValue]
+
+* link:https://github.com/clojure/java.jdbc/blob/master/src/main/clojure/clojure/java/jdbc.clj#L328[jdbc/ISQLParameter]
+
+  
+==== Deerializing
+
+[source]
+.src/clj/reporting_example/db/core.clj
+....
+,,,,,,
+(defn to-date [sql-date]
+  (-> sql-date (.getTime) (java.util.Date.)))
+
+(extend-protocol jdbc/IResultSetReadColumn
+  Date
+  (result-set-read-column [v _ _] (to-date v))
+
+  Timestamp
+  (result-set-read-column [v _ _] (to-date v))
+
+  Jdbc4Array
+  (result-set-read-column [v _ _] (vec (.getArray v)))
+
+  PGobject
+  (result-set-read-column [pgobj _metadata _index]
+    (let [type  (.getType pgobj)
+          value (.getValue pgobj)]
+      (case type
+        "json" (parse-string value true)
+        "jsonb" (parse-string value true)
+        "citext" (str value)
+        value))))
+....
+
+* link:https://github.com/clojure/java.jdbc/blob/master/src/main/clojure/clojure/java/jdbc.clj#L347[jdbc/IResultSetReadColumn]
+
+
+=== employee 테이블에 데이터  입력하기
+
+REPL 상에서 다음을 직접 실행해, 데이터를 직접 입력해 준다.
+   
+[source]
+....
+(mount.core/start #'reporting-example.db.core/*db*)
+  
+(in-ns 'reporting-example.db.core)
+
+(jdbc/insert!
+ *db*
+ :employee
+ [:name :occupation :place :country]
+ ["Albert Einstein", "Engineer", "Ulm", "Germany"]
+ ["Alfred Hitchcock", "Movie Director", "London", "UK"]
+ ["Wernher Von Braun", "Rocket Scientist", "Wyrzysk", "Poland"]
+ ["Sigmund Freud", "Neurologist", "Pribor", "Czech Republic"]
+ ["Mahatma Gandhi", "Lawyer", "Gujarat", "India"]
+ ["Sachin Tendulkar", "Cricket Player", "Mumbai", "India"]
+ ["Michael Schumacher", "F1 Racer", "Cologne", "Germany"])
+....
+
+=== 쿼리문 작성하기
+
+[listing]
+.resources/sql/queries.sql
+----
+-- :name read-employees :? :*
+-- reads the list of employees
+select * from employee
+----
+
+REPL 상에서 태스트해 본다.
+
+[source]
+....
+(conman/bind-connection *db* "sql/queries.sql")
+
+(read-employees)
+; => ({:country "Germany",
+;      :place "Ulm",
+;      :occupation "Engineer",
+;      :name "Albert Einstein"}
+;     {:country "UK",
+;      :place "London",
+;      :occupation "Movie Director",
+;      :name "Alfred Hitchcock"}
+;     ...)
+....
+
+
+=== Generating the Reports
+
+==== doc.pdf 만들기
+
+[source]
+.src/clj/reporting_example/reports.clj
+....
+(ns reporting-example.reports
+  (:require [reporting-example.db.core :as db]
+            [clj-pdf.core :refer [pdf template]]))
+  
+(pdf
+ [{:header "Wow that was easy"}
+  [:list
+    [:chunk {:style :bold} "a bold item"]
+    "another item"
+    "yet another item"]
+  [:paragraph "I'm a paragraph!"]]
+ "doc.pdf")
+....
+
+
+==== table-doc.pdf 만들기
+
+[source]
+.src/clj/reporting_example/reports.clj
+....
+(pdf
+ [{:header "Employee List"}
+  (into [:table
+         {:border false
+          :cell-border false
+          :header [{:backdrop-color [0 150 150]} "Name" "Occupation" "Place" "Country"]}]
+        (employee-template (db/read-employees)))]
+   "table-report.pdf")
+....
+  
+
+==== list-doc.pdf 만들기
+
+[source]
+.clj-pdf의 `template` 함수 이용 예
+....
+(def employee-template
+  (template [$name $occupation $place $country]))
+
+(employee-template (take 2 (db/read-employees)))
+;=> (["Albert Einstein" "Engineer" "Ulm" "Germany"]
+;    ["Alfred Hitchcock", "Movie Director", "London", "UK"])
+....
+
+
+[source]
+.src/clj/reporting_example/reports.clj
+....
+(def employee-template-paragraph
+  (template
+   [:paragraph
+     [:heading {:style {:size 15}} $name]
+     [:chunk {:style :bold} "occupation: "] $occupation "\n"
+     [:chunk {:style :bold} "place: "] $place "\n"
+     [:chunk {:style :bold} "country: "] $country
+     [:spacer]]))
+
+(pdf
+  [{}
+   [:heading {:size 10} "Employees"]
+   [:line]
+   [:spacer]
+   (employee-template-paragraph (db/read-employees))]
+ "list-report.pdf")
+....
+
+
+=== Displaying the Reports
+
+[source]
+.resources/templates/home.html
+....
+{% extends "base.html" %}
+{% block content %}
+  <div class="row">
+    <div class="span12">
+        <h1>Select report type:</h1>
+        <ul class="nav nav-pills">
+            <li class="btn btn-default">
+                <a href="{{servlet-context}}/list">List reports</a>
+            </li>
+            <li class="btn btn-default">
+                <a href="{{servlet-context}}/table">Table reports</a>
+            </li>
+        </ul>
+        {% if error %}
+        <h2>An error has occured while generating the report:</h2>
+        <div class="alert alert-danger">{{error}}</div>
+        {% endif %}
+    </div>
+  </div>
+{% endblock %}
+....
+
+[source]
+.src/clj/reporting_example/routes/home.clj
+....
+(ns reporting-example.routes.home
+  (:require [ring.util.response :as response]
+            [compojure.core :refer [defroutes GET]]
+            [reporting-example.reports :as reports]
+            [reporting-example.layout :as layout]))
+
+(defn home-page []
+  (layout/render "home.html"))
+
+(defn about-page []
+  (layout/render "about.html"))
+
+(defn write-response [report-bytes]
+  (with-open [in (java.io.ByteArrayInputStream. report-bytes)]
+    (-> (response/response in)
+        (response/header "Content-Disposition" "filename=document.pdf")
+        (response/header "Content-Length" (count report-bytes))
+        (response/content-type "application/pdf")) ))
+
+(defn generate-report [report-type]
+  (try
+    (let [out (java.io.ByteArrayOutputStream.)]
+      (condp = (keyword report-type)
+        :table (reports/table-report out)
+        :list  (reports/list-report out))
+      (write-response (.toByteArray out)))
+
+    (catch Exception ex
+      (layout/render "home.html" {:error (.getMessage ex)}))))
+
+(defroutes home-routes
+  (GET "/" [] (home-page))
+  (GET "/about" [] (about-page))
+  (GET "/:report-type" [report-type] (generate-report report-type)))
+....
+
