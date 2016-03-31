@@ -10,3 +10,7 @@ profiles.clj
 /.env
 .nrepl-port
 /log
+
+.idea/
+figwheel_server.log
+*.iml
