@@ -13,3 +13,9 @@ WHERE id = :id
 -- delete a user given the id
 DELETE FROM users
 WHERE id = :id
+
+-- :name save-file! :! :n
+-- saves a file to the database
+INSERT INTO files
+(owner, type, name, data)
+VALUES (:owner, :type, :name, :data)
