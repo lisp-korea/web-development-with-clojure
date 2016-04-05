@@ -19,3 +19,15 @@ WHERE id = :id
 INSERT INTO files
 (owner, type, name, data)
 VALUES (:owner, :type, :name, :data)
+
+-- :name list-thumbnails
+-- selects thumbnail names for the given gallery owner
+SELECT owner, name FROM files
+ WHERE owner = :owner
+  AND name LIKE 'thumb\_%'
+
+-- :name get-image :? :1
+-- retrieve image data by name
+SELECT type, data FROM files
+WHERE name = :name
+AND owner = :owner
