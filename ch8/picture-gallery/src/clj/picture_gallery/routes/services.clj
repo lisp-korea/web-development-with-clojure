@@ -72,5 +72,6 @@
           :summary "delete the specified file from the database"
           :return Result
           (gallery/delete-image!
-            identity thumbnail (clojure.string/replace thumbnail #"thumb_" ""))))
-
+            identity thumbnail (clojure.string/replace thumbnail #"thumb_" "")))
+  (DELETE "/account" {:keys [identity]}
+          (auth/delete-account! identity)))
