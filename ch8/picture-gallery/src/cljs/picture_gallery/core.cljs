@@ -54,20 +54,30 @@
     [:div.col-md-12
      "this is the story of picture-gallery... work in progress"]]])
 
-(defn home-page []
-  [:div.container
-   [:div.jumbotron
-    [:h1 "Welcome to picture-gallery"]
-    [:p "Time to start building your site!"]
-    [:p [:a.btn.btn-primary.btn-lg {:href "http://luminusweb.net"} "Learn more »"]]]
-   [:div.row
-    [:div.col-md-12
-     [:h2 "Welcome to ClojureScript"]]]
-   (when-let [docs (session/get :docs)]
+(defn galleries [gallery-links]
+  [:div.text-xs-center
+   (for [row (partition-all 3 gallery-links)]
+     ^{:key row}
      [:div.row
-      [:div.col-md-12
-       [:div {:dangerouslySetInnerHTML
-              {:__html (md->html docs)}}]]])])
+      (for [{:keys [owner name]} row]
+        ^{:key (str owner name)}
+        [:div.col-sm-4
+         [:a {:href (str "#/gallery/" owner)}
+          [:img {:src (str js/context "/gallery/" owner "/" name)}]]])])])
+
+(defn list-galleries! []
+  (ajax/GET "/list-galleries"
+            {:handler #(session/put! :gallery-links %)}))
+
+(defn home-page []
+  (list-galleries!)
+  (fn []
+    [:div.container
+     [:div.row
+      [:div.col-md-12>h2 "Available Galleries"]]
+     (when-let [gallery-links (session/get :gallery-links)]
+       [:div.row>div.col-md-12
+        [galleries gallery-links]])]))
 
 (def pages
   {:home    #'home-page
