@@ -66,5 +66,11 @@
         :middleware [wrap-multipart-params]
         :summary "handles image upload"
         :return Result
-        (upload/save-image! (:identity req) file)))
+        (upload/save-image! (:identity req) file))
+  (DELETE "/image/:thumbnail" {:keys [identity]}
+          :path-params [thumbnail :- String]
+          :summary "delete the specified file from the database"
+          :return Result
+          (gallery/delete-image!
+            identity thumbnail (clojure.string/replace thumbnail #"thumb_" ""))))
 
