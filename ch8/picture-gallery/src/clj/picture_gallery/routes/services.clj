@@ -49,7 +49,11 @@
        :path-params [owner :- String]
        :summary "list thumbnails for images in the gallery"
        :return [Gallery]
-       (gallery/list-thumbnails owner)))
+       (gallery/list-thumbnails owner))
+  (GET "/list-galleries" []
+       :summary "lists a thumbnail for each user"
+       :return [Gallery]
+       (gallery/list-galleries)))
 
 (defapi restricted-service-routes
   {:swagger {:ui "/swagger-ui-private"

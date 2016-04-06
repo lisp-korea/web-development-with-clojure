@@ -31,3 +31,15 @@ SELECT owner, name FROM files
 SELECT type, data FROM files
 WHERE name = :name
 AND owner = :owner
+
+-- :name select-gallery-previews :? :*
+-- selects a thumbnail for each user gallery
+WITH summary AS (
+    SELECT f.owner,
+           f.name,
+           ROW_NUMBER() OVER(PARTITION BY f.owner
+                                 ORDER BY f.name DESC) AS rk
+      FROM files f WHERE name like 'thumb\_%')
+SELECT s.*
+  FROM summary s
+ WHERE s.rk = 1
