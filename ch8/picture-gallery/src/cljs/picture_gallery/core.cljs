@@ -8,7 +8,9 @@
             [picture-gallery.ajax :refer [load-interceptors!]]
             [ajax.core :as ajax]
             [picture-gallery.components.registration :as reg]
-            [picture-gallery.components.login :as l])
+            [picture-gallery.components.login :as l]
+            [picture-gallery.components.upload :as u]
+            [picture-gallery.components.gallery :as g])
   (:import goog.History))
 
 (defn nav-link [uri title page collapsed?]
@@ -18,15 +20,35 @@
     {:href uri
      :on-click #(reset! collapsed? true)} title]])
 
+(defn account-actions [id]
+  (let [expanded? (r/atom false)]
+    (fn []
+      [:div.dropdown
+       {:class    (when @expanded? "open")
+        :on-click #(swap! expanded? not)}
+       [:button.btn.btn-secondary.dropdown-toggle
+        {:type :button}
+        [:span.glyphicon.glyphicon-user] " " id [:span.caret]]
+       [:div.dropdown-menu.user-actions
+        [:a.dropdown-item.btn
+         {:on-click
+          #(session/put!
+            :modal reg/delete-account-modal)}
+         "delete account"]
+        [:a.dropdown-item.btn
+         {:on-click
+          #(ajax/POST
+            "/logout"
+            {:handler (fn [] (session/remove! :identity))})}
+         "sign out"]]])))
+
 (defn user-menu []
   (if-let [id (session/get :identity)]
     [:ul.nav.navbar-nav.pull-xs-right
      [:li.nav-item
-      [:a.dropdown-item.btn
-       {:on-click #(ajax/POST
-                    "/logout"
-                    {:handler (fn [] (session/remove! :identity))})}
-       [:i.fa.fa-user] " " id " | sign out"]]]
+      [u/upload-button]]
+     [:li.nav-item
+      [account-actions id]]]
     [:ul.nav.navbar-nav.pull-xs-right
      [:li.nav-item [l/login-button]]
      [:li.nav-item [reg/registration-button]]]))
@@ -51,24 +73,35 @@
     [:div.col-md-12
      "this is the story of picture-gallery... work in progress"]]])
 
-(defn home-page []
-  [:div.container
-   [:div.jumbotron
-    [:h1 "Welcome to picture-gallery"]
-    [:p "Time to start building your site!"]
-    [:p [:a.btn.btn-primary.btn-lg {:href "http://luminusweb.net"} "Learn more »"]]]
-   [:div.row
-    [:div.col-md-12
-     [:h2 "Welcome to ClojureScript"]]]
-   (when-let [docs (session/get :docs)]
+(defn galleries [gallery-links]
+  [:div.text-xs-center
+   (for [row (partition-all 3 gallery-links)]
+     ^{:key row}
      [:div.row
-      [:div.col-md-12
-       [:div {:dangerouslySetInnerHTML
-              {:__html (md->html docs)}}]]])])
+      (for [{:keys [owner name]} row]
+        ^{:key (str owner name)}
+        [:div.col-sm-4
+         [:a {:href (str "#/gallery/" owner)}
+          [:img {:src (str js/context "/gallery/" owner "/" name)}]]])])])
+
+(defn list-galleries! []
+  (ajax/GET "/list-galleries"
+            {:handler #(session/put! :gallery-links %)}))
+
+(defn home-page []
+  (list-galleries!)
+  (fn []
+    [:div.container
+     [:div.row
+      [:div.col-md-12>h2 "Available Galleries"]]
+     (when-let [gallery-links (session/get :gallery-links)]
+       [:div.row>div.col-md-12
+        [galleries gallery-links]])]))
 
 (def pages
-  {:home #'home-page
-   :about #'about-page})
+  {:home    #'home-page
+   :gallery #'g/gallery-page
+   :about   #'about-page})
 
 (defn modal []
   (when-let [session-modal (session/get :modal)]
@@ -85,7 +118,9 @@
 
 (secretary/defroute "/" []
   (session/put! :page :home))
-
+(secretary/defroute "/gallery/:owner" [owner]
+                    (g/fetch-gallery-thumbs! owner)
+                    (session/put! :page :gallery))
 (secretary/defroute "/about" []
   (session/put! :page :about))
 

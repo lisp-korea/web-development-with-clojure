@@ -20,6 +20,27 @@
                           errors
                           {:server-error (get-in % [:response :message])})})))
 
+(defn delete-account! []
+  (ajax/DELETE "/account"
+               {:handler #(do
+                           (session/remove! :identity)
+                           (session/put! :page :home))}))
+
+(defn delete-account-modal []
+  (fn []
+    [c/modal
+     [:h2.alert.alert-danger "Delete Account!"]
+     [:p "Are you sure you wish to delete the account and associated gallery?"]
+     [:div
+      [:button.btn.btn-primary
+       {:on-click (fn []
+                    (delete-account!)
+                    (session/remove! :modal))}
+       "Delete"]
+      [:button.btn.btn-danger
+       {:on-click (fn [] (session/remove! :modal))}
+       "Cancel"]]]))
+
 (defn registration-form []
   (let [fields (atom {})
         error  (atom nil)]

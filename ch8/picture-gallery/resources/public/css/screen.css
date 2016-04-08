@@ -80,3 +80,15 @@ body {
     z-index: 1;
 }
 
+.image {
+    z-index: 100;
+    position: absolute;
+    margin: auto;
+    left: 0;
+    right: 0;
+    padding:20px;
+}
+
+.user-actions {
+    margin-left: -80px;
+}

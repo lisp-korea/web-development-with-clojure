@@ -57,3 +57,9 @@
           (assoc :session (assoc session :identity (:id user))))
       (catch Exception e
         (handle-registration-error e)))))
+
+(defn delete-account! [identity]
+  (db/delete-account! identity)
+  (-> {:result :ok}
+      (response/ok)
+      (assoc :session nil)))

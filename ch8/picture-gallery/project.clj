@@ -58,7 +58,10 @@
      :compiler
      {:output-to "target/cljsbuild/public/js/app.js"
       :output-dir "target/cljsbuild/public/js/out"
-      :externs ["react/externs/react.js"]
+      :externs ["react/externs/react.js"
+                "resources/public/vendor/js/colors.js"]
+      :closure-warnings {:externs-validation :off
+                         :non-standard-jsdoc :off}
       :pretty-print true}}}}
   
   :target-path "target/%s/"
